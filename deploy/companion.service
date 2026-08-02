@@ -1,0 +1,36 @@
+# =============================================================
+#  Rash — systemd service for Raspberry Pi
+#  Install:
+#    sudo cp deploy/companion.service /etc/systemd/system/
+#    sudo systemctl daemon-reload
+#    sudo systemctl enable companion
+#    sudo systemctl start companion
+#  View logs:
+#    journalctl -u companion -f
+# =============================================================
+
+[Unit]
+Description=Rash - Class 10 AI Study Companion
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Change the User to your Pi username (e.g. pi, or your username)
+User=pi
+# Change the WorkingDirectory to where you cloned the project
+WorkingDirectory=/home/pi/student-ai-chatbot
+# Command to start the server. Use the node binary from PATH.
+ExecStart=/usr/bin/env node server.js
+Restart=always
+RestartSec=5
+Environment=NODE_ENV=production
+# Hardening (optional)
+NoNewPrivileges=true
+ProtectSystem=full
+# If using SQLite (data/ folder), allow writes to the project dir:
+ReadWritePaths=/home/pi/student-ai-chatbot/data
+
+[Install]
+WantedBy=multi-user.target
+

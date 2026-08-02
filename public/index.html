@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Rash — AI Study Companion</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>" />
+  <script>
+    // Apply saved theme before first paint to avoid a flash of the wrong theme
+    (function () {
+      try {
+        document.documentElement.setAttribute('data-theme', localStorage.getItem('rash-theme') || 'dark');
+      } catch (e) { /* ignore */ }
+    })();
+  </script>
+</head>
+<body>
+  <!-- App Header -->
+  <header class="app-header">
+    <div class="header-inner">
+      <div class="logo">
+        <div class="logo-icon">⚡</div>
+        <div>
+          <h1>Rash</h1>
+          <p></p>
+        </div>
+      </div>
+      <div class="header-actions">
+        <button id="themeToggle" class="theme-toggle" title="Toggle dark / light theme">
+          <svg id="themeIcon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+          </svg>
+        </button>
+        <button id="voiceModeBtn" class="voice-mode-btn" title="Toggle Voice Mode (short spoken answers)">
+          🔊 <span>Voice</span>
+        </button>
+        <button id="resetBtn" class="reset-btn" title="Start a new conversation">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+            <path d="M3 3v5h5"/>
+          </svg>
+          New
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Tab Navigation -->
+  <nav class="tab-nav">
+    <button class="tab-btn active" data-tab="chat">💬 Chat</button>
+    <button class="tab-btn" data-tab="schedule">📅 Schedule</button>
+    <button class="tab-btn" data-tab="notes">📝 Notes</button>
+  </nav>
+
+  <!-- ================= CHAT TAB ================= -->
+  <section id="tab-chat" class="tab-panel active">
+    <main class="chat-container">
+      <!-- Welcome / Empty state -->
+      <div id="welcome" class="welcome">
+        <div class="welcome-badge">
+          <div class="orb"></div>
+          <span class="bolt">⚡</span>
+        </div>
+        <h2>Hey, I'm Rash.</h2>
+        <p>
+          Your <strong>AI study companion</strong>. Ask a doubt, set a
+          <strong>reminder</strong>, or <strong>save a note</strong> — I'll handle it.
+        </p>
+
+        <div class="subject-grid">
+          <button class="subject-chip" data-subject="Maths">📐 Maths</button>
+          <button class="subject-chip" data-subject="Science">🔬 Science</button>
+          <button class="subject-chip" data-subject="English">✍️ English</button>
+          <button class="subject-chip" data-subject="Hindi">🇮🇳 Hindi</button>
+          <button class="subject-chip" data-subject="SST">🌏 SST</button>
+          <button class="subject-chip" data-subject="IT">💻 IT (402)</button>
+          <button class="subject-chip" data-subject="Retail">🛒 Retail (401)</button>
+          <button class="subject-chip" data-subject="AI">🤖 AI (417)</button>
+        </div>
+
+        <div class="sample-questions">
+          <p class="sample-label">Try asking something like:</p>
+          <button class="sample-chip">Explain the quadratic formula with an example ✏️</button>
+          <button class="sample-chip">Remind me to revise Physics at 5 pm tomorrow 🔔</button>
+          <button class="sample-chip">What's the difference between mixtures and compounds? 🧪</button>
+          <button class="sample-chip">Note this: Newton's 2nd law is F = ma 📝</button>
+          <button class="sample-chip">What's in my saved notes? 🗄️</button>
+          <button class="sample-chip">What's on my schedule today? 📅</button>
+        </div>
+      </div>
+
+      <!-- Messages -->
+      <div id="messages" class="messages"></div>
+
+      <!-- Typing indicator -->
+      <div id="typing" class="typing hidden">
+        <div class="typing-bubble">
+          <span></span><span></span><span></span>
+          <span class="typing-text">Rash is thinking...</span>
+        </div>
+      </div>
+    </main>
+
+    <!-- Chat Input -->
+    <footer class="input-area">
+      <div class="input-wrap">
+        <button id="micBtn" class="icon-btn mic-btn" title="Speak your question">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+            <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+            <line x1="12" y1="19" x2="12" y2="23"/>
+            <line x1="8" y1="23" x2="16" y2="23"/>
+          </svg>
+        </button>
+        <textarea id="input" rows="1" placeholder="Ask Rash anything..."></textarea>
+        <button id="sendBtn" class="send-btn" title="Send message">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="22" y1="2" x2="11" y2="13"/>
+            <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+          </svg>
+        </button>
+      </div>
+      <p class="hint">
+        Free AI (GROQ / Gemini) • Voice mode for short answers • Try "remind me..." or "note this..."
+      </p>
+    </footer>
+  </section>
+
+  <!-- ================= SCHEDULE TAB ================= -->
+  <section id="tab-schedule" class="tab-panel">
+    <div class="panel-header">
+      <h2>📅 Schedule</h2>
+      <div class="header-btns">
+        <button id="scheduleSelectBtn" class="select-btn">Select</button>
+        <button id="addScheduleBtn" class="primary-btn">+ Add</button>
+      </div>
+    </div>
+
+    <div id="scheduleBulkBar" class="bulk-bar hidden">
+      <span id="scheduleSelectedCount">0 selected</span>
+      <div class="bulk-actions">
+        <button id="scheduleBulkDelete" class="danger-btn">🗑️ Delete</button>
+        <button id="scheduleBulkCancel" class="mini-btn">Cancel</button>
+      </div>
+    </div>
+
+    <div class="schedule-filters">
+      <button class="filter-btn active" data-filter="today">Today</button>
+      <button class="filter-btn" data-filter="upcoming">Upcoming 7 days</button>
+      <button class="filter-btn" data-filter="all">All</button>
+    </div>
+
+    <div id="scheduleList" class="schedule-list">
+      <p class="empty-state">Loading...</p>
+    </div>
+
+    <!-- Schedule add/edit modal -->
+    <div id="scheduleModal" class="modal-overlay hidden">
+      <div class="modal">
+        <button id="closeScheduleModal" class="modal-close" title="Close">&times;</button>
+        <div class="modal-icon">📅</div>
+        <h2 id="scheduleModalTitle">Add Schedule Item</h2>
+        <div class="modal-form">
+          <div class="form-field">
+            <label for="schTitle">Title *</label>
+            <input type="text" id="schTitle" placeholder="e.g. Revise Chapter 5" />
+          </div>
+          <div class="form-field">
+            <label for="schSubject">Subject</label>
+            <select id="schSubject">
+              <option value="">— Select —</option>
+              <option value="Maths">Maths</option>
+              <option value="Science">Science</option>
+              <option value="English">English</option>
+              <option value="Hindi">Hindi</option>
+              <option value="SST">SST</option>
+              <option value="IT">IT (402)</option>
+              <option value="Retail">Retail (401)</option>
+              <option value="AI">AI (417)</option>
+              <option value="Other">Other</option>
+            </select>
+          </div>
+          <div class="form-row">
+            <div class="form-field">
+              <label for="schDate">Date *</label>
+              <input type="date" id="schDate" />
+            </div>
+            <div class="form-field">
+              <label for="schTime">Time</label>
+              <input type="time" id="schTime" />
+            </div>
+          </div>
+          <div class="form-field">
+            <label for="schPriority">Priority</label>
+            <select id="schPriority">
+              <option value="normal">Normal</option>
+              <option value="high">High</option>
+              <option value="low">Low</option>
+            </select>
+          </div>
+          <div class="form-field">
+            <label for="schNote">Note</label>
+            <textarea id="schNote" rows="2" placeholder="Optional details..."></textarea>
+          </div>
+        </div>
+        <p id="scheduleError" class="modal-error hidden"></p>
+        <div class="modal-actions">
+          <button id="deleteScheduleBtn" class="danger-btn hidden">Delete</button>
+          <button id="saveScheduleBtn" class="modal-save-btn">Save</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= NOTES TAB ================= -->
+  <section id="tab-notes" class="tab-panel">
+    <div class="panel-header">
+      <h2>📝 Notes</h2>
+      <div class="header-btns">
+        <button id="notesSelectBtn" class="select-btn">Select</button>
+        <button id="addNoteBtn" class="primary-btn">+ Add</button>
+      </div>
+    </div>
+
+    <div id="notesBulkBar" class="bulk-bar hidden">
+      <span id="notesSelectedCount">0 selected</span>
+      <div class="bulk-actions">
+        <button id="notesBulkDelete" class="danger-btn">🗑️ Delete</button>
+        <button id="notesBulkCancel" class="mini-btn">Cancel</button>
+      </div>
+    </div>
+
+    <div id="notesList" class="notes-list">
+      <p class="empty-state">Loading...</p>
+    </div>
+
+    <!-- Note add/edit modal -->
+    <div id="noteModal" class="modal-overlay hidden">
+      <div class="modal">
+        <button id="closeNoteModal" class="modal-close" title="Close">&times;</button>
+        <div class="modal-icon">📝</div>
+        <h2 id="noteModalTitle">Add Note</h2>
+        <div class="modal-form">
+          <div class="form-field">
+            <label for="noteTitle">Title</label>
+            <input type="text" id="noteTitle" placeholder="e.g. Physics Formulas" />
+          </div>
+          <div class="form-field">
+            <label for="noteSubject">Subject</label>
+            <select id="noteSubject">
+              <option value="">— Select —</option>
+              <option value="Maths">Maths</option>
+              <option value="Science">Science</option>
+              <option value="English">English</option>
+              <option value="Hindi">Hindi</option>
+              <option value="SST">SST</option>
+              <option value="IT">IT (402)</option>
+              <option value="Retail">Retail (401)</option>
+              <option value="AI">AI (417)</option>
+              <option value="Other">Other</option>
+            </select>
+          </div>
+          <div class="form-field">
+            <label for="noteContent">Content *</label>
+            <textarea id="noteContent" rows="5" placeholder="Write your note here..."></textarea>
+          </div>
+        </div>
+        <p id="noteError" class="modal-error hidden"></p>
+        <div class="modal-actions">
+          <button id="deleteNoteBtn" class="danger-btn hidden">Delete</button>
+          <button id="saveNoteBtn" class="modal-save-btn">Save</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= API SETUP MODAL ================= -->
+  <div id="setupModal" class="modal-overlay hidden">
+    <div class="modal">
+      <button id="closeModal" class="modal-close" title="Close">&times;</button>
+      <div class="modal-icon">🔑</div>
+      <h2>Connect Rash</h2>
+      <p class="modal-desc">
+        Add your <strong>free</strong> API keys below. You can add <strong>both</strong>
+        GROQ and Gemini so you always have a backup. Keys are stored only in the local
+        <code>.env</code> file on this device.
+      </p>
+      <div class="provider-fields">
+        <div class="provider-field">
+          <label for="groqKeyInput">GROQ (free &amp; fast)</label>
+          <input type="password" id="groqKeyInput" placeholder="gsk_..." autocomplete="off" spellcheck="false" />
+        </div>
+        <div class="provider-field">
+          <label for="geminiKeyInput">Google Gemini (free)</label>
+          <input type="password" id="geminiKeyInput" placeholder="AIza..." autocomplete="off" spellcheck="false" />
+        </div>
+      </div>
+      <p id="apiKeyError" class="modal-error hidden"></p>
+      <div class="modal-actions">
+        <a href="https://console.groq.com" target="_blank" rel="noopener" class="modal-link">
+          Get free keys →
+        </a>
+        <button id="saveKeyBtn" class="modal-save-btn">Save &amp; Connect</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Reminder toast -->
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="script.js"></script>
+</body>
+</html>
+
