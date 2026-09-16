@@ -1,9 +1,9 @@
 @echo off
-title Rash - Class 10 AI Study Companion
+title Rash - Gemini Flash Live Desk Companion
 cd /d "%~dp0"
 
 echo ==============================================
-echo   ⚡ Rash - Class 10 AI Study Companion
+echo   ⚡ Rash - Gemini Flash Live Desk Companion
 echo ==============================================
 echo.
 

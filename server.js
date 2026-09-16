@@ -5,9 +5,9 @@ const fs = require('fs');
 const crypto = require('crypto');
 const db = require('./db');
 
-// Free AI provider SDKs
-const { Groq } = require('groq-sdk');
+// Gemini is the only AI runtime.
 const { GoogleGenerativeAI } = require('@google/generative-ai');
+const { google } = require('googleapis');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -21,76 +21,31 @@ app.use(express.static(path.join(__dirname, 'public')));
 db.init();
 
 // ------------------------------------------------------------------
-// AI Client setup — BOTH free providers (GROQ + Gemini) can be
-// configured at the same time and persist together in .env.
+// Gemini Flash Live-only client. GEMINI_LIVE_MODEL is configurable because
+// model availability is tied to the Google Cloud project/region.
 // ------------------------------------------------------------------
 const ENV_PATH = path.join(__dirname, '.env');
-
-let activeProvider = (process.env.AI_PROVIDER || 'groq').toLowerCase();
-let groqApiKey = process.env.GROQ_API_KEY || '';
 let geminiApiKey = process.env.GEMINI_API_KEY || '';
-
-const MODEL_OVERRIDE = process.env.AI_MODEL || '';
-
-function getModel(provider) {
-  if (MODEL_OVERRIDE) return MODEL_OVERRIDE;
-  return provider === 'gemini' ? 'gemini-2.0-flash' : 'llama-3.3-70b-versatile';
-}
-
-let groq = null;
+const LIVE_MODEL = process.env.GEMINI_LIVE_MODEL || 'gemini-3.8-flash-live';
 let gemini = null;
-
-function rebuildClients() {
-  groq = groqApiKey ? new Groq({ apiKey: groqApiKey }) : null;
+function rebuildClient() {
   gemini = geminiApiKey
-    ? new GoogleGenerativeAI(geminiApiKey).getGenerativeModel({ model: getModel('gemini') })
+    ? new GoogleGenerativeAI(geminiApiKey).getGenerativeModel({ model: LIVE_MODEL })
     : null;
 }
-rebuildClients();
-
-function resolveActiveProvider() {
-  if (activeProvider === 'gemini' && geminiApiKey) return 'gemini';
-  if (activeProvider === 'groq' && groqApiKey) return 'groq';
-  if (geminiApiKey) return 'gemini';
-  if (groqApiKey) return 'groq';
-  return 'groq';
-}
-
-function isConfigured() {
-  return resolveActiveProvider() === 'gemini' ? !!geminiApiKey : !!groqApiKey;
-}
-
-function setApiKey(provider, newKey) {
-  const clean = (newKey || '').toString().trim();
-  if (provider === 'gemini') {
-    geminiApiKey = clean;
-  } else {
-    groqApiKey = clean;
-  }
-  rebuildClients();
-}
-
-function persistConfig(provider) {
+rebuildClient();
+function isConfigured() { return Boolean(geminiApiKey); }
+function persistConfig() {
   try {
-    let envContent = '';
-    if (fs.existsSync(ENV_PATH)) {
-      envContent = fs.readFileSync(ENV_PATH, 'utf8');
-    }
-    const setOrAdd = (key, value) => {
-      const re = new RegExp('^' + key + '=');
-      if (re.test(envContent)) {
-        envContent = envContent.replace(new RegExp('^' + key + '=.*$', 'm'), key + '=' + value);
-      } else {
-        envContent += '\n' + key + '=' + value + '\n';
-      }
+    let envContent = fs.existsSync(ENV_PATH) ? fs.readFileSync(ENV_PATH, 'utf8') : '';
+    const set = (key, value) => {
+      const re = new RegExp('^' + key + '=.*$', 'm');
+      envContent = re.test(envContent) ? envContent.replace(re, key + '=' + value) : envContent + `\n${key}=${value}\n`;
     };
-    setOrAdd('AI_PROVIDER', provider);
-    setOrAdd('GROQ_API_KEY', groqApiKey);
-    setOrAdd('GEMINI_API_KEY', geminiApiKey);
+    set('GEMINI_API_KEY', geminiApiKey);
+    set('GEMINI_LIVE_MODEL', LIVE_MODEL);
     fs.writeFileSync(ENV_PATH, envContent, 'utf8');
-  } catch (e) {
-    console.error('Failed to persist config to .env:', e.message);
-  }
+  } catch (e) { console.error('Failed to persist Gemini config:', e.message); }
 }
 
 // ------------------------------------------------------------------
@@ -267,64 +222,22 @@ function buildMessages(session, userMessage, voiceMode, dbContext) {
 let voiceModeEnabled = db.getSetting('voice_mode', 'false') === 'true';
 
 // ------------------------------------------------------------------
-// AI call: route to the active free provider (GROQ or Gemini)
-// Auto-failover: if the active provider hits a rate limit (429) and
-// the other provider is configured, we switch automatically and retry.
+// AI call: Gemini Flash Live-only. This REST turn uses the same configured
+// Live model for text turns; browser/device audio can be connected separately.
 // ------------------------------------------------------------------
-async function askAI(messages, originalProvider) {
-  let provider = originalProvider || resolveActiveProvider();
-  const maxRetries = 2; // try primary, then fallback once
-
-  for (let attempt = 0; attempt < maxRetries; attempt++) {
-    try {
-      if (provider === 'gemini') {
-        const contents = [];
-        const system = messages.find((m) => m.role === 'system');
-        for (const m of messages) {
-          if (m.role === 'system') continue;
-          contents.push({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] });
-        }
-        const result = await gemini.generateContent({
-          contents,
-          systemInstruction: system ? { parts: [{ text: system.content }] } : undefined,
-          generationConfig: { temperature: 0.7, maxOutputTokens: voiceModeEnabled ? 200 : 1200 }
-        });
-        const reply = result.response.text();
-        return reply.trim();
-      }
-
-      const completion = await groq.chat.completions.create({
-        model: getModel(provider),
-        messages,
-        temperature: 0.7,
-        max_tokens: voiceModeEnabled ? 200 : 1200
-      });
-      return completion.choices[0].message.content.trim();
-    } catch (err) {
-      const isRateLimit = err.status === 429 ||
-        (err.message && (err.message.toLowerCase().includes('rate limit') || err.message.toLowerCase().includes('quota') || err.message.toLowerCase().includes('billing')));
-
-      if (isRateLimit && attempt === 0) {
-        // Try to switch to the other provider if available
-        if (provider === 'groq' && geminiApiKey) {
-          provider = 'gemini';
-          activeProvider = 'gemini'; // remember the switch for future requests
-          persistConfig('gemini');
-          console.log('⚠️  GROQ rate limited — switched to Gemini');
-          continue;
-        } else if (provider === 'gemini' && groqApiKey) {
-          provider = 'groq';
-          activeProvider = 'groq'; // remember the switch for future requests
-          persistConfig('groq');
-          console.log('⚠️  Gemini rate limited — switched to GROQ');
-          continue;
-        }
-        // If no fallback available, let the error propagate
-      }
-      throw err; // re-throw if not rate-limit or no fallback available
-    }
+async function askAI(messages) {
+  if (!gemini) throw new Error('Gemini Live is not configured.');
+  const contents = [];
+  const system = messages.find((m) => m.role === 'system');
+  for (const m of messages) {
+    if (m.role !== 'system') contents.push({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] });
   }
-  throw new Error('Both providers are rate limited or unavailable.');
+  const result = await gemini.generateContent({
+    contents,
+    systemInstruction: system ? { parts: [{ text: system.content }] } : undefined,
+    generationConfig: { temperature: 0.7, maxOutputTokens: voiceModeEnabled ? 200 : 1200 }
+  });
+  return result.response.text().trim();
 }
 
 // ------------------------------------------------------------------
@@ -612,70 +525,100 @@ async function detectAndApplyAction(text) {
 }
 
 // ------------------------------------------------------------------
-// API: GET /api/health
+// Desk controller: hardware daemons may POST the physical mute button to this
+// endpoint. State is persistent so a browser LCD and hardware stay in sync.
 // ------------------------------------------------------------------
-app.get('/api/health', (req, res) => {
-  const provider = resolveActiveProvider();
-  res.json({
-    configured: isConfigured(),
-    provider,
-    model: getModel(provider),
-    groqConfigured: !!groqApiKey,
-    geminiConfigured: !!geminiApiKey,
-    db: db.init ? 'ok' : 'error',
-    voiceMode: voiceModeEnabled
-  });
+let controllerState = {
+  muted: db.getSetting('controller_muted', 'false') === 'true',
+  rgb: db.getSetting('controller_rgb', '#7c3aed'),
+  pomodoro: JSON.parse(db.getSetting('pomodoro_state', '{"mode":"focus","seconds":1500,"running":false}'))
+};
+function saveController() {
+  db.setSetting('controller_muted', String(controllerState.muted));
+  db.setSetting('controller_rgb', controllerState.rgb);
+  db.setSetting('pomodoro_state', JSON.stringify(controllerState.pomodoro));
+}
+app.get('/api/controller', (req, res) => res.json(controllerState));
+app.post('/api/controller/mute-toggle', (req, res) => {
+  controllerState.muted = req.body?.muted === undefined ? !controllerState.muted : Boolean(req.body.muted);
+  saveController(); res.json(controllerState);
+});
+app.post('/api/controller/rgb', (req, res) => {
+  const color = (req.body?.color || '').toString();
+  if (!/^#[0-9a-f]{6}$/i.test(color)) return res.status(400).json({ error: 'RGB color must be #RRGGBB.' });
+  controllerState.rgb = color; saveController(); res.json(controllerState);
+});
+app.post('/api/pomodoro', (req, res) => {
+  const { action, seconds } = req.body || {};
+  if (action === 'start') controllerState.pomodoro.running = true;
+  if (action === 'pause') controllerState.pomodoro.running = false;
+  if (action === 'reset') controllerState.pomodoro = { mode: 'focus', seconds: 1500, running: false };
+  if (action === 'set' && Number.isInteger(seconds) && seconds >= 0) controllerState.pomodoro.seconds = seconds;
+  if (action === 'complete') controllerState.pomodoro = { mode: controllerState.pomodoro.mode === 'focus' ? 'break' : 'focus', seconds: controllerState.pomodoro.mode === 'focus' ? 300 : 1500, running: false };
+  saveController(); res.json(controllerState.pomodoro);
+});
+
+// Google Calendar OAuth and scheduling. Calendar is deliberately opt-in; local
+// schedules continue to work when credentials have not been configured.
+function calendarClient() {
+  const id = process.env.GOOGLE_CALENDAR_CLIENT_ID, secret = process.env.GOOGLE_CALENDAR_CLIENT_SECRET;
+  if (!id || !secret) return null;
+  const client = new google.auth.OAuth2(id, secret, process.env.GOOGLE_CALENDAR_REDIRECT_URI || `http://localhost:${PORT}/api/calendar/callback`);
+  const token = db.getSetting('google_calendar_token', '');
+  if (token) client.setCredentials(JSON.parse(token));
+  client.on('tokens', (tokens) => db.setSetting('google_calendar_token', JSON.stringify({ ...client.credentials, ...tokens })));
+  return client;
+}
+app.get('/api/calendar/status', (req, res) => res.json({ configured: Boolean(calendarClient()), connected: Boolean(db.getSetting('google_calendar_token', '')) }));
+app.get('/api/calendar/connect', (req, res) => {
+  const client = calendarClient();
+  if (!client) return res.status(400).send('Set GOOGLE_CALENDAR_CLIENT_ID and GOOGLE_CALENDAR_CLIENT_SECRET first.');
+  res.redirect(client.generateAuthUrl({ access_type: 'offline', prompt: 'consent', scope: ['https://www.googleapis.com/auth/calendar.events'] }));
+});
+app.get('/api/calendar/callback', async (req, res) => {
+  try { const client = calendarClient(); const { tokens } = await client.getToken(req.query.code); db.setSetting('google_calendar_token', JSON.stringify(tokens)); res.send('Google Calendar connected. You can close this page and return to Rash.'); }
+  catch (error) { res.status(500).send('Calendar connection failed: ' + error.message); }
+});
+async function createCalendarEvent(item) {
+  const auth = calendarClient(); if (!auth || !db.getSetting('google_calendar_token', '')) return null;
+  const calendar = google.calendar({ version: 'v3', auth });
+  const tz = process.env.CALENDAR_TIME_ZONE || Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const start = item.time ? { dateTime: `${item.date}T${item.time}:00`, timeZone: tz } : { date: item.date };
+  const end = item.time ? { dateTime: new Date(new Date(`${item.date}T${item.time}:00`).getTime() + 60 * 60 * 1000).toISOString(), timeZone: tz } : { date: item.date };
+  const out = await calendar.events.insert({ calendarId: 'primary', requestBody: { summary: item.title, description: item.note || '', start, end } });
+  return out.data.id;
+}
+// Spotify Connect uses a user-provided device ID and the official Web API token.
+app.post('/api/spotify/:command', async (req, res) => {
+  const token = process.env.SPOTIFY_ACCESS_TOKEN;
+  if (!token) return res.status(400).json({ error: 'Set SPOTIFY_ACCESS_TOKEN to enable Spotify controls.' });
+  const command = req.params.command;
+  const path = command === 'play' ? '/v1/me/player/play' : command === 'pause' ? '/v1/me/player/pause' : command === 'next' ? '/v1/me/player/next' : command === 'previous' ? '/v1/me/player/previous' : null;
+  if (!path) return res.status(404).json({ error: 'Unknown Spotify command.' });
+  const suffix = process.env.SPOTIFY_DEVICE_ID ? `?device_id=${encodeURIComponent(process.env.SPOTIFY_DEVICE_ID)}` : '';
+  const response = await fetch('https://api.spotify.com' + path + suffix, { method: command === 'next' || command === 'previous' ? 'POST' : 'PUT', headers: { Authorization: `Bearer ${token}` } });
+  if (!response.ok) return res.status(response.status).json({ error: 'Spotify rejected the command. Refresh SPOTIFY_ACCESS_TOKEN.' });
+  res.json({ ok: true });
 });
 
 // ------------------------------------------------------------------
-// API: POST /api/config
+// API: GET /api/health
 // ------------------------------------------------------------------
+app.get('/api/health', (req, res) => {
+  res.json({ configured: isConfigured(), provider: 'gemini-live', model: LIVE_MODEL,
+    geminiConfigured: !!geminiApiKey, db: 'ok', voiceMode: voiceModeEnabled,
+    calendarConfigured: Boolean(process.env.GOOGLE_CALENDAR_CLIENT_ID && process.env.GOOGLE_CALENDAR_CLIENT_SECRET),
+    controller: controllerState });
+});
+
+// Gemini Live-only configuration. No provider switching or fallback exists.
 app.post('/api/config', (req, res) => {
-  const { apiKey: newKey, provider, groqKey, geminiKey } = req.body || {};
-
-  if (groqKey !== undefined || geminiKey !== undefined) {
-    const cg = (groqKey || '').toString().trim();
-    const ce = (geminiKey || '').toString().trim();
-    if (cg) setApiKey('groq', cg);
-    if (ce) setApiKey('gemini', ce);
-    if (!cg && !ce) {
-      return res.status(400).json({ error: 'Please enter at least one free API key.' });
-    }
-    persistConfig(activeProvider);
-    console.log('✅ GROQ + Gemini API keys updated from the UI.');
-    const provider = resolveActiveProvider();
-    return res.json({
-      ok: true,
-      configured: isConfigured(),
-      provider,
-      model: getModel(provider),
-      groqConfigured: !!groqApiKey,
-      geminiConfigured: !!geminiApiKey
-    });
-  }
-
-  const cleanKey = (newKey || '').toString().trim();
-  const cleanProvider = (provider || activeProvider).toLowerCase();
-
-  if (cleanProvider !== 'groq' && cleanProvider !== 'gemini') {
-    return res.status(400).json({ error: 'Unsupported provider. Please choose GROQ or Gemini.' });
-  }
-  if (!cleanKey) {
-    return res.status(400).json({ error: 'Please enter a valid API key.' });
-  }
-
-  activeProvider = cleanProvider;
-  setApiKey(cleanProvider, cleanKey);
-  persistConfig(activeProvider);
-  console.log(`✅ ${cleanProvider} API key updated from the UI.`);
-  res.json({
-    ok: true,
-    configured: isConfigured(),
-    provider: cleanProvider,
-    model: getModel(activeProvider),
-    groqConfigured: !!groqApiKey,
-    geminiConfigured: !!geminiApiKey
-  });
+  const cleanKey = (req.body?.geminiKey || req.body?.apiKey || '').toString().trim();
+  if (!cleanKey) return res.status(400).json({ error: 'Please enter a Gemini API key.' });
+  geminiApiKey = cleanKey;
+  rebuildClient();
+  persistConfig();
+  res.json({ ok: true, configured: true, provider: 'gemini-live', model: LIVE_MODEL, geminiConfigured: true });
 });
 
 // ------------------------------------------------------------------
@@ -703,7 +646,7 @@ app.post('/api/chat', async (req, res) => {
   if (!isConfigured()) {
     const fallback =
       "I'm ready to help! 🎓 But I need my brain connected first. " +
-      'Click the "Add API Key" button above to connect a FREE provider (GROQ or Gemini), ' +
+      'Click the "Add API Key" button above to connect Gemini Flash Live, ' +
       'then ask me any doubt from Class 10 Science, Maths, English, Hindi, SST, IT, Retail, or AI!';
     session.history.push({ role: 'assistant', content: fallback });
     db.addMessage(sessionId, 'assistant', fallback);
@@ -735,6 +678,12 @@ app.post('/api/chat', async (req, res) => {
       }
     }
 
+    // Sync AI-created reminders too, so every scheduling route has the same calendar behavior.
+    if (action?.action === 'schedule' && action.saved) {
+      try { const eventId = await createCalendarEvent(action.saved); if (eventId) db.setSetting('calendar_event_' + action.saved.id, eventId); }
+      catch (error) { console.warn('Calendar sync skipped:', error.message); }
+    }
+
     // 3) Build DB context (notes + schedule retrieval) for relevant questions
     const dbContext = buildDatabaseContext(cleanMessage);
 
@@ -758,23 +707,23 @@ app.post('/api/chat', async (req, res) => {
     db.addMessage(sessionId, 'assistant', finalReply);
     res.json({ reply: finalReply, sessionId, action: action || { action: 'none' } });
   } catch (err) {
-    console.error(`${resolveActiveProvider()} API error:`, err.status || err.message);
+    console.error(`Gemini Live API error:`, err.status || err.message);
     session.history.pop(); // remove the failed user turn
     db.getMessages(sessionId); // no-op (keep DB consistent)
 
     const status = err.status;
     const errMsg = (err.message || '').toLowerCase();
-    const provider = resolveActiveProvider();
+    const provider = 'gemini-live';
 
     let message;
     if (status === 400 || status === 401 || status === 403) {
       message = 'Invalid API key. Please check your key and try again.';
     } else if (status === 404) {
-      message = 'The AI model "' + getModel(provider) + '" is not available for your provider. Check AI_MODEL in the .env file and restart.';
+      message = 'The AI model "' + LIVE_MODEL + '" is not available for your provider. Check AI_MODEL in the .env file and restart.';
     } else if (status === 429) {
       message = 'Rate limit reached (too many questions too fast). Please wait a moment and try again.';
     } else if (errMsg.includes('quota') || errMsg.includes('billing')) {
-      message = 'Your free tier quota has been exhausted. Please wait or switch to another free provider.';
+      message = 'Gemini quota has been exhausted. Please wait and try again.';
     } else {
       message = 'Something went wrong while contacting the AI. Please try again in a moment.';
     }
@@ -841,6 +790,7 @@ app.post('/api/schedule', (req, res) => {
     priority: priority || 'normal',
     note: note || ''
   });
+  createCalendarEvent(saved).then((eventId) => { if (eventId) db.setSetting('calendar_event_' + saved.id, eventId); }).catch((error) => console.warn('Calendar sync skipped:', error.message));
   res.json(saved);
 });
 
@@ -912,17 +862,10 @@ app.post('/api/notes/bulk-delete', (req, res) => {
 // Start server
 // ------------------------------------------------------------------
 app.listen(PORT, () => {
-  const provider = resolveActiveProvider();
   console.log('==============================================');
-  console.log('  ⚡ Rash  (Class 10 AI Study Companion)');
-  console.log('==============================================');
+  console.log('  ⚡ Rash  (Gemini Flash Live Desk Companion)');
   console.log(`  ➜  Local:    http://localhost:${PORT}`);
-  console.log(`  ➜  Network:  http://<raspberry-pi-ip>:${PORT}`);
-  console.log(`  ➜  Provider: ${provider}`);
-  console.log(`  ➜  Model:    ${getModel(provider)}`);
-  console.log(`  ➜  GROQ:     ${groqApiKey ? 'Connected ✅' : 'Not set'}`);
+  console.log(`  ➜  Model:    ${LIVE_MODEL}`);
   console.log(`  ➜  Gemini:   ${geminiApiKey ? 'Connected ✅' : 'Not set'}`);
-  console.log(`  ➜  Voice:    ${voiceModeEnabled ? 'ON 🔊' : 'OFF'}`);
   console.log('==============================================');
 });
-

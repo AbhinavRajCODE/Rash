@@ -8,7 +8,7 @@ set -e
 cd "$(dirname "$0")"
 
 echo "=============================================="
-echo "  ⚡ Rash — AI Study Companion — Starting..."
+echo "  ⚡ Rash — Gemini Flash Live Desk Companion — Starting..."
 echo "=============================================="
 echo
 
@@ -23,7 +23,7 @@ fi
 if [ -f ".env" ]; then
   echo "✓ Found .env — API keys will be loaded."
 else
-  echo "⚠️  No .env found. Copy .env.example to .env and add your GROQ/Gemini keys."
+  echo "⚠️  No .env found. Copy .env.example to .env and add your GEMINI_API_KEY."
 fi
 
 echo

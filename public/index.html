@@ -54,6 +54,7 @@
     <button class="tab-btn active" data-tab="chat">💬 Chat</button>
     <button class="tab-btn" data-tab="schedule">📅 Schedule</button>
     <button class="tab-btn" data-tab="notes">📝 Notes</button>
+    <button class="tab-btn" data-tab="desk">🖥️ Desk</button>
   </nav>
 
   <!-- ================= CHAT TAB ================= -->
@@ -125,7 +126,7 @@
         </button>
       </div>
       <p class="hint">
-        Free AI (GROQ / Gemini) • Voice mode for short answers • Try "remind me..." or "note this..."
+        Gemini 3.8 Flash Live • Voice mode • Try “remind me…” or “start a focus session”
       </p>
     </footer>
   </section>
@@ -216,6 +217,19 @@
     </div>
   </section>
 
+  <!-- ================= DESK CONTROLLER TAB ================= -->
+  <section id="tab-desk" class="tab-panel desk-panel">
+    <div class="panel-header"><h2>🖥️ Desk Controller</h2><span id="deskStatus" class="desk-status">Loading…</span></div>
+    <div class="lcd-screen" id="lcdScreen"><span id="lcdDate">—</span><strong id="lcdClock">--:--</strong><span id="lcdAgenda">Calendar: connect to show agenda</span></div>
+    <div class="desk-grid">
+      <article class="desk-card"><h3>🔇 Physical mute</h3><p>Controller button and dashboard share the same state.</p><button id="muteBtn" class="primary-btn">Mute microphone</button></article>
+      <article class="desk-card"><h3>💡 Responsive RGB</h3><p id="rgbLabel">Ready</p><input id="rgbPicker" type="color" value="#7c3aed" /></article>
+      <article class="desk-card"><h3>🍅 Pomodoro</h3><strong id="pomodoroTime" class="pomodoro-time">25:00</strong><div class="header-btns"><button id="pomodoroStart" class="primary-btn">Start</button><button id="pomodoroReset" class="mini-btn">Reset</button></div></article>
+      <article class="desk-card"><h3>📆 Google Calendar</h3><p>Schedules are stored locally and new entries sync when connected.</p><a class="primary-btn calendar-link" href="/api/calendar/connect">Connect Calendar</a></article>
+      <article class="desk-card"><h3>🎵 Spotify</h3><div class="header-btns"><button data-spotify="previous" class="mini-btn">◀</button><button data-spotify="play" class="primary-btn">Play</button><button data-spotify="pause" class="mini-btn">Pause</button><button data-spotify="next" class="mini-btn">▶</button></div></article>
+    </div>
+  </section>
+
   <!-- ================= NOTES TAB ================= -->
   <section id="tab-notes" class="tab-panel">
     <div class="panel-header">
@@ -285,24 +299,15 @@
       <div class="modal-icon">🔑</div>
       <h2>Connect Rash</h2>
       <p class="modal-desc">
-        Add your <strong>free</strong> API keys below. You can add <strong>both</strong>
-        GROQ and Gemini so you always have a backup. Keys are stored only in the local
-        <code>.env</code> file on this device.
+        Connect Rash to <strong>Gemini 3.8 Flash Live</strong>. Your key is stored only on this device in <code>.env</code>.
       </p>
       <div class="provider-fields">
-        <div class="provider-field">
-          <label for="groqKeyInput">GROQ (free &amp; fast)</label>
-          <input type="password" id="groqKeyInput" placeholder="gsk_..." autocomplete="off" spellcheck="false" />
+          <div class="provider-field"><label for="geminiKeyInput">Gemini API key</label><input id="geminiKeyInput" type="password" autocomplete="off" placeholder="AIza..." /></div>
         </div>
-        <div class="provider-field">
-          <label for="geminiKeyInput">Google Gemini (free)</label>
-          <input type="password" id="geminiKeyInput" placeholder="AIza..." autocomplete="off" spellcheck="false" />
-        </div>
-      </div>
-      <p id="apiKeyError" class="modal-error hidden"></p>
+        <p id="apiKeyError" class="modal-error hidden"></p>
       <div class="modal-actions">
-        <a href="https://console.groq.com" target="_blank" rel="noopener" class="modal-link">
-          Get free keys →
+        <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener" class="modal-link">
+          Get Gemini API key ↗
         </a>
         <button id="saveKeyBtn" class="modal-save-btn">Save &amp; Connect</button>
       </div>
