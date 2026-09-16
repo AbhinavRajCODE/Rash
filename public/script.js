@@ -20,7 +20,6 @@
 
   const setupModal = document.getElementById('setupModal');
   const closeModalBtn = document.getElementById('closeModal');
-  const groqKeyInput = document.getElementById('groqKeyInput');
   const geminiKeyInput = document.getElementById('geminiKeyInput');
   const saveKeyBtn = document.getElementById('saveKeyBtn');
   const apiKeyError = document.getElementById('apiKeyError');
@@ -87,6 +86,7 @@
     panels.forEach((p) => p.classList.toggle('active', p.id === 'tab-' + name));
     if (name === 'schedule') loadSchedule('today');
     if (name === 'notes') loadNotes();
+    if (name === 'desk') loadDesk();
   }
 
   tabs.forEach((t) => t.addEventListener('click', () => switchTab(t.dataset.tab)));
@@ -332,6 +332,7 @@
     autoResize();
 
     addMessage('user', message);
+    applyIntentLighting(message);
     isWaiting = true;
     sendBtn.disabled = true;
     showTyping();
@@ -909,19 +910,17 @@
   function openSetupModal() {
     setupModal.classList.remove('hidden');
     apiKeyError.classList.add('hidden');
-    groqKeyInput.value = '';
     geminiKeyInput.value = '';
-    setTimeout(() => groqKeyInput.focus(), 50);
+    setTimeout(() => geminiKeyInput.focus(), 50);
   }
   function closeSetupModal() {
     setupModal.classList.add('hidden');
   }
 
   async function saveApiKey() {
-    const groqKey = groqKeyInput.value.trim();
     const geminiKey = geminiKeyInput.value.trim();
-    if (!groqKey && !geminiKey) {
-      apiKeyError.textContent = 'Please paste at least one free API key (GROQ or Gemini).';
+    if (!geminiKey) {
+      apiKeyError.textContent = 'Please paste your Gemini API key.';
       apiKeyError.classList.remove('hidden');
       return;
     }
@@ -931,18 +930,14 @@
       const res = await fetch('/api/config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ groqKey, geminiKey })
+        body: JSON.stringify({ geminiKey })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to save key.');
       closeSetupModal();
       const banner = document.querySelector('.error-banner');
       if (banner) banner.remove();
-      const parts = [];
-      if (data.groqConfigured) parts.push('GROQ');
-      if (data.geminiConfigured) parts.push('Gemini');
-      const active = parts.length ? parts.join(' + ') : 'AI';
-      addMessage('bot', '✅ Connected! Rash is online and ready (FREE ' + active + '). Ask me any doubt or tell me to schedule/note something!');
+      addMessage('bot', '✅ Gemini Flash Live is connected. Ask for help, a reminder, music, or a focus session!');
     } catch (err) {
       apiKeyError.textContent = err.message || 'Failed to connect. Please check your key.';
       apiKeyError.classList.remove('hidden');
@@ -968,7 +963,7 @@
         const banner = document.createElement('div');
         banner.className = 'error-banner';
         banner.innerHTML =
-          '<span>⚠️ Rash is <strong>not connected</strong>. Click to add your free GROQ or Gemini key.</span>' +
+          '<span>⚠️ Rash is <strong>not connected</strong>. Add your Gemini Flash Live API key.</span>' +
           '<button id="setupKeyBtn">Add Key</button>';
         const container = document.querySelector('.chat-container');
         container.prepend(banner);
@@ -1004,9 +999,7 @@
   closeModalBtn.addEventListener('click', closeSetupModal);
   saveKeyBtn.addEventListener('click', saveApiKey);
   setupModal.addEventListener('click', (e) => { if (e.target === setupModal) closeSetupModal(); });
-  [groqKeyInput, geminiKeyInput].forEach((el) => {
-    el.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); saveApiKey(); } });
-  });
+  geminiKeyInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); saveApiKey(); } });
 
   // Schedule modal
   document.getElementById('addScheduleBtn').addEventListener('click', () => openScheduleModal(null));
@@ -1054,6 +1047,31 @@
     notesSelected.clear();
     toggleNotesSelectBtn();
   });
+
+  /* ==================================================
+     DESK CONTROLLER
+     ================================================== */
+  let pomodoroTimer = null;
+  const intentColors = [
+    { words: ['focus', 'study', 'pomodoro'], color: '#2563eb', label: 'Focus blue' },
+    { words: ['relax', 'calm', 'break'], color: '#22c55e', label: 'Break green' },
+    { words: ['urgent', 'alarm', 'deadline'], color: '#ef4444', label: 'Urgent red' },
+    { words: ['music', 'spotify'], color: '#a855f7', label: 'Music purple' }
+  ];
+  async function deskRequest(url, body) {
+    const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
+    const data = await response.json(); if (!response.ok) throw new Error(data.error || 'Controller request failed.'); return data;
+  }
+  function showPomodoro(p) { const el = document.getElementById('pomodoroTime'); if (el) el.textContent = `${String(Math.floor(p.seconds / 60)).padStart(2, '0')}:${String(p.seconds % 60).padStart(2, '0')}`; }
+  function startPomodoroClock(p) { clearInterval(pomodoroTimer); showPomodoro(p); if (!p.running) return; pomodoroTimer = setInterval(async () => { p.seconds--; showPomodoro(p); if (p.seconds <= 0) { clearInterval(pomodoroTimer); const next = await deskRequest('/api/pomodoro', { action: 'complete' }); showPomodoro(next); showToast('🍅 Focus interval complete — take a break!'); } else if (p.seconds % 10 === 0) { deskRequest('/api/pomodoro', { action: 'set', seconds: p.seconds }).catch(() => {}); } }, 1000); }
+  async function loadDesk() { try { const state = await (await fetch('/api/controller')).json(); const mute = document.getElementById('muteBtn'); mute.textContent = state.muted ? 'Unmute microphone' : 'Mute microphone'; document.getElementById('rgbPicker').value = state.rgb; document.getElementById('deskStatus').textContent = state.muted ? 'Muted' : 'Ready'; startPomodoroClock(state.pomodoro); } catch (e) {} }
+  function applyIntentLighting(message) { const hit = intentColors.find((item) => item.words.some((word) => message.toLowerCase().includes(word))); if (!hit) return; deskRequest('/api/controller/rgb', { color: hit.color }).then(() => { const picker = document.getElementById('rgbPicker'); if (picker) picker.value = hit.color; document.getElementById('rgbLabel').textContent = hit.label; }).catch(() => {}); }
+  document.getElementById('muteBtn').addEventListener('click', async () => { const state = await deskRequest('/api/controller/mute-toggle'); document.getElementById('muteBtn').textContent = state.muted ? 'Unmute microphone' : 'Mute microphone'; });
+  document.getElementById('rgbPicker').addEventListener('input', (e) => deskRequest('/api/controller/rgb', { color: e.target.value }).then(() => { document.getElementById('rgbLabel').textContent = e.target.value; }));
+  document.getElementById('pomodoroStart').addEventListener('click', async () => { const p = await deskRequest('/api/pomodoro', { action: 'start' }); startPomodoroClock(p); });
+  document.getElementById('pomodoroReset').addEventListener('click', async () => startPomodoroClock(await deskRequest('/api/pomodoro', { action: 'reset' })));
+  document.querySelectorAll('[data-spotify]').forEach((button) => button.addEventListener('click', () => deskRequest('/api/spotify/' + button.dataset.spotify).then(() => showToast('🎵 Spotify updated')).catch((e) => showToast(e.message))));
+  setInterval(() => { const now = new Date(); const clock = document.getElementById('lcdClock'); if (clock) { document.getElementById('lcdDate').textContent = now.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }); clock.textContent = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); } }, 1000);
 
   /* ==================================================
      INIT
